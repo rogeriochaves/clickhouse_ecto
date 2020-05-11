@@ -25,7 +25,7 @@ defmodule ClickhouseEcto.Mixfile do
   defp deps do
     [
       {:ecto_sql, "~> 3.0"},
-      {:clickhousex, "~> 0.4.0"},
+      {:clickhousex, git: "https://github.com/lanalabs/clickhousex.git", tag: "v0.2.5"},
       {:ex_doc, "~> 0.19", only: :dev},
       {:db_connection, "~> 2.2.1", override: true}
     ]
