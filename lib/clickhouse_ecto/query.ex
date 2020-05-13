@@ -3,8 +3,6 @@ defmodule ClickhouseEcto.Query do
 
   import ClickhouseEcto.Helpers
 
-  require IEx
-
   @doc """
   Receives a query and must return a SELECT query.
   """
@@ -86,44 +84,5 @@ defmodule ClickhouseEcto.Query do
       _, counter ->
         {[??], counter + 1}
     end)
-  end
-
-  @doc """
-  Clickhouse doesn't support update
-  """
-  @spec update(
-          prefix :: String.t(),
-          table :: String.t(),
-          fields :: [atom],
-          filters :: [atom],
-          returning :: [atom]
-        ) :: String.t()
-  def update(_prefix, _table, _fields, _filters, _returning) do
-    raise "UPDATE is not supported"
-  end
-
-  @doc """
-  Clickhouse doesn't support delete
-  """
-  @spec delete(prefix :: String.t(), table :: String.t(), filters :: [atom], returning :: [atom]) ::
-          String.t()
-  def delete(_prefix, _table, _filters, _returning) do
-    raise "DELETE is not supported"
-  end
-
-  @doc """
-  Receives a query and values to update and must return an UPDATE query.
-  """
-  @spec update_all(query :: Ecto.Query.t()) :: no_return
-  def update_all(%{from: _from} = _query, _prefix \\ nil) do
-    raise "UPDATE is not supported"
-  end
-
-  @doc """
-  Clickhouse doesn't support delete
-  """
-  @spec delete_all(query :: Ecto.Query.t()) :: no_return
-  def delete_all(%{from: _from} = _query) do
-    raise "DELETE is not supported"
   end
 end

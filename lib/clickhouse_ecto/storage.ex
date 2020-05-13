@@ -41,35 +41,40 @@ defmodule ClickhouseEcto.Storage do
     end
   end
 
+  # Not in Ecto.Adapter.Storage ecto v3.2.x
   def storage_status(opts) do
     command = ~s[SELECT 1]
 
     case run_query(command, opts) do
       {:ok, _} ->
-        :ok
+        :up
 
       {:error, %{code: :database_does_not_exists}} ->
-        {:error, :already_down}
+        :down
 
       {:error, error} ->
         {:error, Exception.message(error)}
     end
   end
 
+  ## Helpers
+
   defp run_query(sql, opts) do
+    {:ok, _} = Application.ensure_all_started(:clickhousex)
+
     opts =
       opts
-      |> Keyword.drop([:name, :log])
-      |> Keyword.put(:pool, DBConnection.Connection)
+      |> Keyword.drop([:name, :log, :pool, :pool_size])
       |> Keyword.put(:backoff_type, :stop)
+      |> Keyword.put(:max_restarts, 0)
 
     {:ok, pid} = Task.Supervisor.start_link()
 
     task =
       Task.Supervisor.async_nolink(pid, fn ->
-        HTTPoison.start()
-        {:ok, conn} = DBConnection.start_link(Clickhousex.Protocol, opts)
-        value = ClickhouseEcto.Connection.execute(conn, sql, [], opts)
+        {:ok, conn} = Clickhousex.start_link(opts)
+
+        value = Clickhousex.query(conn, sql, [], opts)
         GenServer.stop(conn)
         value
       end)
@@ -77,14 +82,13 @@ defmodule ClickhouseEcto.Storage do
     timeout = Keyword.get(opts, :timeout, 15_000)
 
     case Task.yield(task, timeout) || Task.shutdown(task) do
-      {:ok, {:ok, result}} ->
+      {:ok, {:ok, _query, result}} ->
         {:ok, result}
 
       {:ok, {:error, error}} ->
         {:error, error}
 
-      {:exit, {%{__struct__: struct} = error, _}}
-      when struct in [DBConnection.Error] ->
+      {:exit, {%{__struct__: struct} = error, _}} when struct in [DBConnection.Error] ->
         {:error, error}
 
       {:exit, reason} ->

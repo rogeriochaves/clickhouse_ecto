@@ -1,5 +1,4 @@
 defmodule ClickhouseEcto.Migration do
-  require IEx
   alias Ecto.Migration.Table
   alias Ecto.Migration.Reference
 
@@ -76,11 +75,6 @@ defmodule ClickhouseEcto.Migration do
 
   def execute_ddl(keyword) when is_list(keyword),
     do: error!(nil, "Clickhouse adapter does not support keyword lists in execute")
-
-  @doc false
-  def supports_ddl_transaction? do
-    false
-  end
 
   ## Helpers
 

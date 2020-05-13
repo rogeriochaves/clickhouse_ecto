@@ -2,41 +2,33 @@ defmodule ClickhouseEcto.Connection do
   alias Clickhousex.Query
   alias ClickhouseEcto.Query, as: SQL
 
+  @behaviour Ecto.Adapters.SQL.Connection
+
   @typedoc "The prepared query which is an SQL command"
   @type prepared :: String.t()
 
   @typedoc "The cache query which is a DBConnection Query"
   @type cached :: map
 
-  @doc """
-  Receives options and returns `DBConnection` supervisor child specification.
-  """
-  @spec child_spec(options :: Keyword.t()) :: {module, Keyword.t()}
+  @impl true
   def child_spec(opts) do
-    DBConnection.child_spec(Clickhousex.Protocol, opts)
+    Clickhousex.child_spec(opts)
   end
 
   @doc """
   Prepares and executes the given query with `DBConnection`.
   """
-  @spec prepare_execute(
-          connection :: DBConnection.t(),
-          name :: String.t(),
-          prepared,
-          params :: [term],
-          options :: Keyword.t()
-        ) ::
-          {:ok, query :: map, term} | {:error, Exception.t()}
-  def prepare_execute(conn, name, prepared_query, params, options) do
-    query = %Query{name: name, statement: prepared_query}
+  @impl true
+  def prepare_execute(conn, name, statement, params, options) do
+    query = %Query{name: name, statement: statement}
 
     case DBConnection.prepare_execute(conn, query, params, options) do
       {:ok, query, result} ->
-        {:ok, %{query | statement: prepared_query}, process_rows(result, options)}
+        {:ok, %{query | statement: statement}, process_rows(result, options)}
 
       {:error, %Clickhousex.Error{}} = error ->
-        if is_no_data_found_bug?(error, prepared_query) do
-          {:ok, %Query{name: "", statement: prepared_query}, %{num_rows: 0, rows: []}}
+        if is_no_data_found_bug?(error, statement) do
+          {:ok, %Query{name: "", statement: statement}, %{num_rows: 0, rows: []}}
         else
           error
         end
@@ -49,20 +41,7 @@ defmodule ClickhouseEcto.Connection do
   @doc """
   Executes the given prepared query with `DBConnection`.
   """
-  @spec execute(
-          connection :: DBConnection.t(),
-          prepared_query :: prepared,
-          params :: [term],
-          options :: Keyword.t()
-        ) ::
-          {:ok, term} | {:error, Exception.t()}
-  @spec execute(
-          connection :: DBConnection.t(),
-          prepared_query :: cached,
-          params :: [term],
-          options :: Keyword.t()
-        ) ::
-          {:ok, term} | {:error | :reset, Exception.t()}
+  @impl true
   def execute(conn, %Query{} = query, params, options) do
     case DBConnection.prepare_execute(conn, query, params, options) do
       {:ok, _query, result} ->
@@ -84,6 +63,81 @@ defmodule ClickhouseEcto.Connection do
     execute(conn, %Query{name: "", statement: statement}, params, options)
   end
 
+  @impl true
+  def query(conn, statement, params, options) do
+    Clickhousex.query(conn, statement, params, options)
+    |> case do
+      {:ok, _, result} -> {:ok, result}
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  @doc """
+  Returns a stream that prepares and executes the given query with `DBConnection`.
+  """
+  @impl true
+  def stream(_conn, _statement, _params, _options) do
+    raise("stream/4 not implemented")
+  end
+
+  @impl true
+  def to_constraints(_error), do: []
+
+  ## Queries
+
+  @impl true
+  def all(query) do
+    SQL.all(query)
+  end
+
+  @impl true
+  def update_all(_query) do
+    raise "UPDATE is not supported"
+  end
+
+  @impl true
+  def delete_all(_query) do
+    raise "DELETE is not supported"
+  end
+
+  @impl true
+  def insert(prefix, table, header, rows, on_conflict, returning) do
+    SQL.insert(prefix, table, header, rows, on_conflict, returning)
+  end
+
+  @impl true
+  def update(_prefix, _table, _fields, _filters, _returning) do
+    raise "UPDATE is not supported"
+  end
+
+  @impl true
+  def delete(_prefix, _table, _filters, _returning) do
+    raise "DELETE is not supported"
+  end
+
+  ## DDL
+
+  @impl true
+  def execute_ddl(command), do: ClickhouseEcto.Migration.execute_ddl(command)
+
+  @impl true
+  def ddl_logs(_result), do: []
+
+  @impl true
+  def table_exists_query(_table) do
+    raise "table_exists_query/1 not implemented"
+  end
+
+  ## Helpers
+
+  defp process_rows(result, options) do
+    decoder = options[:decode_mapper] || fn x -> x end
+
+    Map.update!(result, :rows, fn row ->
+      unless is_nil(row), do: Enum.map(row, decoder)
+    end)
+  end
+
   defp is_no_data_found_bug?({:error, error}, statement) do
     is_dml =
       statement
@@ -95,49 +149,4 @@ defmodule ClickhouseEcto.Connection do
 
     is_dml and error.message =~ "No SQL-driver information available."
   end
-
-  defp process_rows(result, options) do
-    decoder = options[:decode_mapper] || fn x -> x end
-
-    Map.update!(result, :rows, fn row ->
-      unless is_nil(row), do: Enum.map(row, decoder)
-    end)
-  end
-
-  def to_constraints(_error), do: []
-
-  @doc """
-  Returns a stream that prepares and executes the given query with `DBConnection`.
-  """
-  @spec stream(
-          connection :: DBConnection.conn(),
-          prepared_query :: prepared,
-          params :: [term],
-          options :: Keyword.t()
-        ) ::
-          Enum.t()
-  def stream(_conn, _prepared, _params, _options) do
-    raise("not implemented")
-  end
-
-  ## Queries
-  def all(query) do
-    SQL.all(query)
-  end
-
-  def update_all(query, prefix \\ nil), do: SQL.update_all(query, prefix)
-  @doc false
-  def delete_all(query), do: SQL.delete_all(query)
-
-  def insert(prefix, table, header, rows, on_conflict, returning),
-    do: SQL.insert(prefix, table, header, rows, on_conflict, returning)
-
-  def update(prefix, table, fields, filters, returning),
-    do: SQL.update(prefix, table, fields, filters, returning)
-
-  def delete(prefix, table, filters, returning),
-    do: SQL.delete(prefix, table, filters, returning)
-
-  ## Migration
-  def execute_ddl(command), do: ClickhouseEcto.Migration.execute_ddl(command)
 end
